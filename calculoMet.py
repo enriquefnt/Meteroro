@@ -61,62 +61,19 @@ while True:
     except ValueError:
         print("Selección inválida. Ingresa un número entre 1 y {}.".format(len(stations_df)))
 
-# Obtener datos horarios (para humedad)
-print("Obteniendo datos horarios (incluyendo humedad si disponible)...")
-data_hourly = mt.Hourly(station_id, start, end)
-data_hourly = data_hourly.fetch()
+# Obtener datos diarios
+print("Obteniendo datos...")
+data = mt.Daily(station_id, start, end)
+data = data.fetch()
 
-if data_hourly.empty:
-    print("No se encontraron datos horarios para el rango especificado. Cambiando a datos diarios sin humedad.")
-    # Fallback a diarios si no hay horarios
-    data = mt.Daily(station_id, start, end).fetch()
-    has_humidity = False
-    if data.empty:
-        print("No se encontraron datos diarios tampoco.")
-        exit()
-else:
-    # Verificar columnas disponibles y construir agg dinámicamente
-    agg_dict = {}
-    if 'temp' in data_hourly.columns:
-        agg_dict['temp'] = 'mean'
-    if 'rh' in data_hourly.columns:
-        agg_dict['rh'] = ['max', 'min']
-    if 'prcp' in data_hourly.columns:
-        agg_dict['prcp'] = 'sum'
-    if 'wspd' in data_hourly.columns:
-        agg_dict['wspd'] = 'mean'
-    
-    if not agg_dict:
-        print("No se encontraron columnas válidas en datos horarios. Cambiando a datos diarios.")
-        data = mt.Daily(station_id, start, end).fetch()
-        has_humidity = False
-    else:
-        try:
-            data = data_hourly.resample('D').agg(agg_dict)
-            if isinstance(data.columns, pd.MultiIndex):
-                data = data.droplevel(0, axis=1)  # Simplificar si hay MultiIndex
-            # Renombrar columnas para consistencia
-            col_rename = {}
-            if 'temp' in agg_dict:
-                col_rename['temp'] = 'tavg'
-            if 'rh' in agg_dict:
-                col_rename[('rh', 'max')] = 'rh_max'
-                col_rename[('rh', 'min')] = 'rh_min'
-            if 'prcp' in agg_dict:
-                col_rename['prcp'] = 'prcp'
-            if 'wspd' in agg_dict:
-                col_rename['wspd'] = 'wspd'
-            data = data.rename(columns=col_rename)
-            has_humidity = 'rh_max' in data.columns
-        except Exception as e:
-            print(f"Error al procesar datos horarios: {e}. Cambiando a datos diarios.")
-            data = mt.Daily(station_id, start, end).fetch()
-            has_humidity = False
+if data.empty:
+    print("No se encontraron datos para el rango especificado.")
+    exit()
 
 print(f"\nDatos obtenidos ({len(data)} días):")
 print(data.head())  # Muestra primeras filas en prompt
 
-# Cálculos estadísticos básicos (ajusta variables según data)
+# Cálculos estadísticos básicos (ajusta variables según data: 'tavg' media, 'tmin', 'tmax', 'prcp', 'wspd', etc.)
 print("\nCalculando estadísticas...")
 
 # Inicializar diccionario para estadísticas
@@ -128,28 +85,29 @@ if 'tavg' in data.columns:
     stats['Temperatura Media Diaria (°C)'] = temp_mean
     print(f"Temperatura media diaria: {temp_mean:.2f} °C")
 
-# Humedad máxima y mínima (si disponible)
-if has_humidity and 'rh_max' in data.columns and 'rh_min' in data.columns:
-    rh_max_overall = data['rh_max'].max()
-    rh_min_overall = data['rh_min'].min()
-    stats['Humedad Máxima Absoluta (%)'] = rh_max_overall
-    stats['Humedad Mínima Absoluta (%)'] = rh_min_overall
-    print(f"Humedad máxima absoluta: {rh_max_overall:.1f} %")
-    print(f"Humedad mínima absoluta: {rh_min_overall:.1f} %")
-elif not has_humidity:
-    print("Humedad no disponible para esta estación (datos horarios no incluyen RH).")
-
 # Desviación estándar de precipitación
 if 'prcp' in data.columns:
     prcp_std = data['prcp'].std()
     stats['Desviación Estándar Precipitación (mm)'] = prcp_std
     print(f"Desviación estándar de precipitación: {prcp_std:.2f} mm")
 
-# Máximo de temperatura máxima (aproximación)
-if 'tavg' in data.columns:
-    tmax_approx = data['tavg'].max()
-    stats['Temperatura Máxima Aproximada (°C)'] = tmax_approx
-    print(f"Temperatura máxima aproximada: {tmax_approx:.2f} °C")
+# Máximo de temperatura máxima
+if 'tmax' in data.columns:
+    tmax_max = data['tmax'].max()
+    stats['Temperatura Máxima Absoluta (°C)'] = tmax_max
+    print(f"Temperatura máxima absoluta: {tmax_max:.2f} °C")
+
+
+# Agregado: Temperatura mínima absoluta
+if 'tmin' in data.columns:
+    tmin_min = data['tmin'].min()
+    stats['Temperatura Mínima Absoluta (°C)'] = tmin_min
+    print(f"Temperatura mínima absoluta: {tmin_min:.2f} °C")
+# Agregado: Media de temperaturas mínimas diarias
+if 'tmin' in data.columns:
+    tmin_mean = data['tmin'].mean()
+    stats['Temperatura Mínima Media Diaria (°C)'] = tmin_mean
+    print(f"Temperatura mínima media diaria: {tmin_mean:.2f} °C")    
 
 # Total de precipitación acumulada
 if 'prcp' in data.columns:
